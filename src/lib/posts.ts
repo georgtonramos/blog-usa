@@ -32,7 +32,10 @@ export type PostFrontmatter = {
 
 export type Post = PostFrontmatter & { content: string };
 
-// Caminhos possíveis para armazenar posts
+// Para cards/listagens (sem `content`)
+export type PostMetadata = Omit<Post, "content">;
+
+// Diretórios candidatos para armazenar posts .mdx
 const CANDIDATES = [
   ["src", "content", "posts"],
   ["content", "posts"],
@@ -46,7 +49,7 @@ function pickPostsDir(): string {
     const p = path.join(cwd, ...parts);
     if (fs.existsSync(p)) return p;
   }
-  // fallback: cria src/content/posts
+  // fallback: cria src/content/posts para não quebrar builds sem posts
   const fallback = path.join(cwd, "src", "content", "posts");
   fs.mkdirSync(fallback, { recursive: true });
   return fallback;
@@ -68,6 +71,7 @@ function toTimestamp(v: unknown): number {
   return 0;
 }
 
+// Lista somente os slugs (sem ler conteúdo)
 export async function getAllSlugs(): Promise<string[]> {
   const files = fs
     .readdirSync(POSTS_DIR, { withFileTypes: true })
@@ -76,26 +80,33 @@ export async function getAllSlugs(): Promise<string[]> {
   return files;
 }
 
-export async function getPostsMetadata(): Promise<PostFrontmatter[]> {
+// Lista metadados (para cards/listagens). Ordena por updated/date desc.
+export async function getPostsMetadata(): Promise<PostMetadata[]> {
   const files = fs
     .readdirSync(POSTS_DIR, { withFileTypes: true })
     .filter((f) => f.isFile() && f.name.endsWith(".mdx"))
     .map((f) => f.name);
 
-  const list: PostFrontmatter[] = [];
+  const list: PostMetadata[] = [];
   for (const file of files) {
     const full = fs.readFileSync(path.join(POSTS_DIR, file), "utf8");
     const { data } = matter(full);
     const slug = file.replace(/\.mdx$/, "");
-    list.push({ slug, ...(data as PostFrontmatter) });
+    const fm = data as PostFrontmatter;
+
+    // normaliza slug (sem barras iniciais)
+    const effectiveSlug = (fm.slug?.trim() || slug).replace(/^\/+/, "");
+
+    // Coerção leve: garantimos o slug no objeto retornado
+    list.push({ ...fm, slug: effectiveSlug });
   }
 
-  // Ordena por updated (fallback: date), mais recente primeiro
   return list.sort((a, b) => {
     return toTimestamp(b.updated ?? b.date) - toTimestamp(a.updated ?? a.date);
   });
 }
 
+// Lê um post específico (frontmatter + conteúdo)
 export async function getPostBySlug(slug: string): Promise<Post | null> {
   const p = mdxPathFromSlug(slug);
   if (!fs.existsSync(p)) return null;
