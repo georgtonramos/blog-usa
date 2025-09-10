@@ -49,6 +49,6 @@ node_modules/
 next-env.d.ts
 
 # conteúdo local (não versionar agora)
-content/
-posts/
-public/images/posts/
+#content/
+#posts/
+#public/images/posts/
