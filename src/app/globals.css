@@ -1,0 +1,84 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+@theme {
+  --font-sans: var(--font-poppins);
+
+  --color-background: #FFFDF9;
+  --color-surface: #FFFFFF;
+
+  --color-primary: #E77C36;
+  --color-primary-600: #d46622;
+
+  --color-accent: #2E7D32;
+  --color-accent-600: #256628;
+
+  --color-dark: #1B2B1F;
+
+  --color-text-dark: #212121;
+  --color-text-secondary: #6B7280;
+
+  --radius-card: 1rem;
+  --shadow-card: 0 6px 24px rgba(2, 6, 23, 0.06);
+}
+
+/* base */
+html, body {
+  @apply bg-background text-text-dark antialiased;
+}
+:root { color-scheme: light; }
+
+.container-readable { @apply mx-auto w-full px-4 md:px-6 lg:max-w-5xl; }
+.measure { max-width: 70ch; }
+
+/* hero titles */
+.h-title {
+  @apply font-bold tracking-tight text-text-dark;
+  font-size: clamp(1.9rem, 2.5vw + 1rem, 2.75rem);
+  line-height: 1.2;
+}
+.h-subtitle { @apply text-text-secondary text-lg md:text-xl; }
+
+/* links & cta */
+a { @apply text-accent font-semibold transition-colors; }
+a:hover { @apply text-accent-600; }
+
+.btn {
+  @apply inline-flex items-center justify-center rounded-lg px-5 py-3 font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2;
+}
+.btn-primary {
+  @apply bg-primary text-white hover:bg-[var(--color-primary-600)] focus:ring-primary;
+}
+.btn-accent {
+  @apply bg-accent text-white hover:bg-[var(--color-accent-600)] focus:ring-accent;
+}
+
+/* cards */
+.card {
+  background: var(--color-surface);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  @apply border border-gray-100;
+}
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 30px rgba(2,6,23,.08);
+}
+
+/* footer */
+.footer-dark {
+  background: var(--color-dark);
+  color: #E5E7EB; /* cinza claro */
+}
+.footer-dark a { @apply hover:text-primary; }
+
+/* typography */
+.prose {
+  --tw-prose-body: var(--color-text-dark);
+  --tw-prose-headings: var(--color-text-dark);
+  --tw-prose-links: var(--color-accent);
+  --tw-prose-bold: var(--color-text-dark);
+  --tw-prose-quotes: var(--color-text-secondary);
+  --tw-prose-th-borders: var(--color-text-secondary);
+  --tw-prose-td-borders: var(--color-text-secondary);
+}
