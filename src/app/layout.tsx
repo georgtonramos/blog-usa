@@ -49,6 +49,11 @@ export const metadata: Metadata = {
     creator: "@LeanLivingTips",
     images: ["/images/slimming-tea-og.webp"],
   },
+  
+  robots: {
+    index: true,
+    follow: true,
+  },
 };
 
 export default function RootLayout({

@@ -5,96 +5,103 @@ import Script from "next/script";
 import { getPostBySlug, getAllSlugs, type Post } from "@/lib/posts";
 import MDXRenderer from "@/components/MDXRenderer";
 
-type Props = { params: { slug: string } }; // ✅ params não é Promise
+type Props = { params: { slug: string } };
 
-const SITE = "https://blog.naturaleatinghub.online";
+const SITE =
+  process.env.NEXT_PUBLIC_SITE_URL || "https://blog.naturaleatinghub.online";
 
 // Converte URL relativa em absoluta para JSON-LD/OG
 function toAbsolute(url?: string): string | undefined {
   if (!url) return undefined;
-  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  if (/^https?:\/\//i.test(url)) return url;
   return `${SITE}${url.startsWith("/") ? "" : "/"}${url}`;
 }
 
-// Gera páginas estáticas em build
-export async function generateStaticParams() {
+// ---------- Build-time params ----------
+export async function generateStaticParams(): Promise<Array<{ slug: string }>> {
   const slugs = await getAllSlugs();
   return slugs.map((slug) => ({ slug }));
 }
 
-// SEO por post
+// ---------- SEO / Metadata ----------
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = params;
   const post = (await getPostBySlug(slug)) as Post | null;
   if (!post) return {};
 
-  const canonical =
-    post.canonical ??
-    `${SITE}/posts/${(post.slug || slug).replace(/^\/+/, "")}`;
+  const slugOrFrontmatter = (post.slug || slug).replace(/^\/+/, "");
+  const canonical = post.canonical ?? `${SITE}/posts/${slugOrFrontmatter}`;
+
+  const ogImage =
+    toAbsolute(post.ogImage) ??
+    toAbsolute(post.coverImage) ??
+    toAbsolute("/images/cover.jpg");
 
   return {
     title: post.title,
-    description: post.description,
+    description: post.description ?? undefined,
     alternates: { canonical },
     openGraph: {
       type: "article",
       title: post.title,
       description: post.description ?? undefined,
       url: canonical,
-      images: post.ogImage ? [toAbsolute(post.ogImage)!] : [toAbsolute("/images/slimming-tea-og.webp")!],
+      images: ogImage ? [ogImage] : undefined,
     },
     twitter: {
       card: "summary_large_image",
       title: post.title,
       description: post.description ?? undefined,
-      images: post.ogImage ? [toAbsolute(post.ogImage)!] : [toAbsolute("/images/slimming-tea-og.webp")!],
+      images: ogImage ? [ogImage] : undefined,
     },
   };
 }
 
+// ---------- Page ----------
 export default async function PostPage({ params }: Props) {
   const { slug } = params;
   const post = (await getPostBySlug(slug)) as Post | null;
   if (!post) return notFound();
 
+  // Datas seguras em ISO (evita "Invalid Date")
+  const datePublished =
+    post.date ? new Date(String(post.date)).toISOString() : undefined;
+  const dateModified = post.updated
+    ? new Date(String(post.updated)).toISOString()
+    : datePublished;
+
+  const url =
+    post.canonical ??
+    `${SITE}/posts/${(post.slug || slug).replace(/^\/+/, "")}`;
+
+  const images = [post.ogImage, post.coverImage]
+    .filter(Boolean)
+    .map((u) => toAbsolute(String(u)!))
+    .filter(Boolean) as string[];
+
   // ---------- JSON-LD ----------
-  const buildArticleSchema = (p: Post) => {
-    const url =
-      p.canonical ??
-      `${SITE}/posts/${(p.slug || slug).replace(/^\/+/, "")}`;
-
-    const images = [p.ogImage, p.coverImage]
-      .filter(Boolean)
-      .map((u) => toAbsolute(u as string)) as string[];
-
-    const datePublished = p.date ? new Date(p.date as any).toISOString() : undefined;
-    const dateModified = p.updated
-      ? new Date(p.updated as any).toISOString()
-      : datePublished;
-
-    return {
-      "@context": "https://schema.org",
-      "@type": "Article",
-      mainEntityOfPage: { "@type": "WebPage", "@id": url },
-      headline: p.title,
-      description: p.description,
-      image: images.length ? images : undefined,
-      author: p.author ? { "@type": "Person", name: p.author } : undefined,
-      publisher: {
-        "@type": "Organization",
-        name: "Natural Eating Hub",
-        logo: {
-          "@type": "ImageObject",
-          url: toAbsolute("/logo.png") || `${SITE}/logo.png`,
-        },
+  const articleSchema = {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    mainEntityOfPage: { "@type": "WebPage", "@id": url },
+    headline: post.title,
+    description: post.description,
+    image: images.length ? images : undefined,
+    author: post.author ? { "@type": "Person", name: post.author } : undefined,
+    publisher: {
+      "@type": "Organization",
+      name: "Natural Eating Hub",
+      logo: {
+        "@type": "ImageObject",
+        url: toAbsolute("/logo.png")!,
       },
-      datePublished,
-      dateModified,
-      keywords: p.keywords?.join(", "),
-    };
+    },
+    datePublished,
+    dateModified,
+    keywords: Array.isArray(post.keywords)
+      ? post.keywords.join(", ")
+      : post.keywords,
   };
-
-  const articleSchema = buildArticleSchema(post);
 
   const faqSchema =
     post?.schema?.faq?.length
@@ -132,9 +139,15 @@ export default async function PostPage({ params }: Props) {
 
   return (
     <>
-      <article className="prose lg:prose-lg mx-auto py-8">
+      <article className="prose lg:prose-lg mx-auto max-w-3xl px-4 py-8">
         <h1>{post.title}</h1>
+
+        {/* ⬇️ Use a prop de acordo com seu MDXRenderer */}
+        {/* Se o seu componente espera `source`: */}
         <MDXRenderer source={post.content} />
+        {/* Se ele espera `code`, troque a linha acima por:
+            <MDXRenderer code={post.content} />
+        */}
       </article>
 
       <Script
