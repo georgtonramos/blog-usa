@@ -16,10 +16,10 @@ export default function Footer() {
             <h4 className="font-semibold text-white mb-2">Legal</h4>
             <ul className="space-y-1">
               <li>
-                <Link href="/privacy">Privacy Policy</Link>
+                <Link href="/privacy-policy">Privacy Policy</Link>
               </li>
               <li>
-                <Link href="/terms">Terms of Service</Link>
+                <Link href="/terms-of-service">Terms of Service</Link>
               </li>
               <li>
                 <Link href="/disclaimer">Disclaimer</Link>

@@ -20,7 +20,7 @@ export default function Header() {
           <Link href="/about" className="text-white hover:opacity-80" style={{ color: '#fff' }}>
             About
           </Link>
-          <Link href="/contato" className="text-white hover:opacity-80" style={{ color: '#fff' }}>
+          <Link href="/contact" className="text-white hover:opacity-80" style={{ color: '#fff' }}>
             Contact
           </Link>
         </nav>
