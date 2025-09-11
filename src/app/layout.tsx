@@ -1,8 +1,11 @@
+// src/app/layout.tsx
 import "./globals.css";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { Poppins } from "next/font/google";
 import type { Metadata } from "next";
+import Script from "next/script";
+import { AnalyticsProvider } from "@/app/providers";
 
 const poppins = Poppins({
   subsets: ["latin"],
@@ -49,7 +52,6 @@ export const metadata: Metadata = {
     creator: "@LeanLivingTips",
     images: ["/images/slimming-tea-og.webp"],
   },
-  
   robots: {
     index: true,
     follow: true,
@@ -69,6 +71,27 @@ export default function RootLayout({
           {children}
         </main>
         <Footer />
+
+        {/* AnalyticsProvider: track pageviews on route changes */}
+        <AnalyticsProvider />
+
+        {/* Google Analytics 4 */}
+        <Script
+          strategy="afterInteractive"
+          src="https://www.googletagmanager.com/gtag/js?id=G-9NZ12CS2M1"
+        />
+        <Script
+          id="gtag-init"
+          strategy="afterInteractive"
+          dangerouslySetInnerHTML={{
+            __html: `
+              window.dataLayer = window.dataLayer || [];
+              function gtag(){dataLayer.push(arguments);}
+              gtag('js', new Date());
+              gtag('config', 'G-9NZ12CS2M1', { page_path: window.location.pathname });
+            `,
+          }}
+        />
       </body>
     </html>
   );
