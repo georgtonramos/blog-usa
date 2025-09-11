@@ -6,6 +6,7 @@ import { Poppins } from "next/font/google";
 import type { Metadata } from "next";
 import Script from "next/script";
 import { AnalyticsProvider } from "@/app/providers";
+import { Suspense } from "react";
 
 const poppins = Poppins({
   subsets: ["latin"],
@@ -72,8 +73,10 @@ export default function RootLayout({
         </main>
         <Footer />
 
-        {/* AnalyticsProvider: track pageviews on route changes */}
-        <AnalyticsProvider />
+        {/* Track pageviews on route changes (must be inside Suspense) */}
+        <Suspense fallback={null}>
+          <AnalyticsProvider />
+        </Suspense>
 
         {/* Google Analytics 4 */}
         <Script
