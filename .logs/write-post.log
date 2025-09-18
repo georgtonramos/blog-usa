@@ -1,3 +1,16 @@
 2025-09-17T22:58:13.539Z ip=::1 ua="PostmanRuntime/7.46.1" status=401 reason=bad_api_key
 2025-09-17T23:00:26.624Z ip=::1 ua="PostmanRuntime/7.46.1" status=201 slug=cha-verde-para-emagrecer-guia-completo-e-seguro file="src/content/posts/cha-verde-para-emagrecer-guia-completo-e-seguro.mdx" tookMs=6 remaining=9
 2025-09-17T23:01:33.814Z ip=::1 ua="PostmanRuntime/7.46.1" status=409 slug=cha-verde-para-emagrecer-guia-completo-e-seguro reason=duplicate
+2025-09-18T00:03:39.099Z ip=::1 ua="PostmanRuntime/7.46.1" status=201 slug=cha-verde-para-emagrecer-guia-completo-e-seguro file="src/content/posts/cha-verde-para-emagrecer-guia-completo-e-seguro.mdx" tookMs=10 remaining=9
+2025-09-18T00:07:41.786Z ip=::1 ua="PostmanRuntime/7.46.1" status=201 slug=cha-12-123-123-verde-para-emagrecer-guia-completo-e-seguro file="src/content/posts/cha-12-123-123-verde-para-emagrecer-guia-completo-e-seguro.mdx" tookMs=4 remaining=9
+2025-09-18T00:08:04.906Z ip=::1 ua="PostmanRuntime/7.46.1" status=201 slug=cha-12-123-123-verde file="src/content/posts/cha-12-123-123-verde.mdx" tookMs=1 remaining=8
+2025-09-18T00:32:11.369Z ip=::1 ua="PostmanRuntime/7.46.1" status=400 reason=invalid_body
+2025-09-18T00:33:04.053Z ip=::1 ua="PostmanRuntime/7.46.1" status=400 reason=invalid_body
+2025-09-18T00:33:18.076Z ip=::1 ua="PostmanRuntime/7.46.1" status=400 reason=invalid_body
+2025-09-18T00:48:39.417Z ip=::1 ua="PostmanRuntime/7.46.1" status=400 reason=invalid_body
+2025-09-18T00:52:00.292Z ip=::1 ua="PostmanRuntime/7.46.1" status=400 reason=invalid_body
+2025-09-18T01:03:08.307Z ip=::1 ua="PostmanRuntime/7.46.1" status=201 file="content/posts/cha-de-hibisco-emagrece.mdx" tookMs=8 remaining=9
+2025-09-18T01:04:33.214Z ip=::1 ua="PostmanRuntime/7.46.1" status=409 file="content/posts/cha-de-hibisco-emagrece.mdx" reason=duplicate
+2025-09-18T01:08:54.373Z ip=::1 ua="PostmanRuntime/7.46.1" status=409 file="content/posts/cha-de-hibisco-emagrece.mdx" reason=duplicate
+2025-09-18T01:13:09.403Z ip=::1 ua="PostmanRuntime/7.46.1" status=201 file="src/content/posts/cha-de-hibisco-emagrece.mdx" tookMs=2 remaining=9
+2025-09-18T01:52:40.431Z ip=::1 ua="PostmanRuntime/7.46.1" status=201 file="src/content/posts/hibiscus-tea-belly-fat.mdx" tookMs=7 remaining=9

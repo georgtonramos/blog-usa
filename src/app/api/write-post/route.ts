@@ -7,7 +7,7 @@ import { z } from "zod";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// ========= Helpers base =========
+/* ================= Helpers ================= */
 function slugify(input: string): string {
   return input
     .normalize("NFD")
@@ -18,85 +18,125 @@ function slugify(input: string): string {
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "");
 }
-function yamlEscape(s: string): string {
+function yamlStr(s: unknown) {
   return `"${String(s).replace(/"/g, '\\"')}"`;
+}
+function yamlVal(v: unknown): string {
+  if (typeof v === "boolean") return v ? "true" : "false";
+  if (Array.isArray(v)) return `[${v.map(yamlStr).join(", ")}]`;
+  if (v === undefined || v === null) return `""`;
+  return yamlStr(v);
 }
 function getIP(req: Request): string {
   const h = req.headers;
   return (
     h.get("x-forwarded-for")?.split(",")[0]?.trim() ||
     h.get("x-real-ip") ||
-    // @ts-ignore - Next.js dev may set this
+    // @ts-ignore
     (h.get("cf-connecting-ip") as string) ||
     "unknown"
   );
 }
-function nowISO() {
-  return new Date().toISOString();
+function nowISO() { return new Date().toISOString(); }
+function todayYMD() { return new Date().toISOString().split("T")[0]; }
+
+async function auditLog(line: string) {
+  try {
+    const logsDir = path.join(process.cwd(), ".logs");
+    await fs.mkdir(logsDir, { recursive: true });
+    await fs.appendFile(path.join(logsDir, "write-post.log"), line + "\n", "utf-8");
+  } catch {/* ignore */}
 }
 
-// ========= Zod: validação de payload =========
+/* ================= Zod (payload JSON) ================= */
 const BodySchema = z.object({
+  // obrigatórios
   title: z.string().min(3).max(120),
   author: z.string().min(2).max(60),
   content: z.string().min(20).max(100_000),
+
+  // opcionais (frontmatter)
+  description: z.string().max(300).optional().default(""),
+  slug: z.string().max(160).optional(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  updated: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  draft: z.boolean().optional().default(false),
+  tags: z.array(z.string()).optional().default([]),
+  keywords: z.array(z.string()).optional().default([]),
+  canonical: z.string().optional().default(""),
+  toc: z.boolean().optional().default(true),
+  readingTime: z.string().optional().default(""),
   coverImage: z.string().max(300).optional().default(""),
+  ogImage: z.string().max(300).optional(),
+
+  // extras
+  dir: z.string().optional().default("src/content/posts"),
+  overwrite: z.boolean().optional().default(false)
 });
 
-// ========= Rate limit em memória =========
-// Janela de 1 minuto, 10 req por chave (API Key) ou IP
+/* ================= Rate limit ================= */
 type Bucket = { count: number; resetAt: number };
 const RL_WINDOW_MS = 60_000;
 const RL_MAX = 10;
-
-// guarda globalmente para sobreviver a HMR em dev
 const globalAny = global as any;
 if (!globalAny.__WRITE_POST_RL__) globalAny.__WRITE_POST_RL__ = new Map<string, Bucket>();
 const buckets: Map<string, Bucket> = globalAny.__WRITE_POST_RL__;
 
 function rateLimitCheck(id: string) {
   const now = Date.now();
-  const bucket = buckets.get(id);
-  if (!bucket || bucket.resetAt <= now) {
+  const b = buckets.get(id);
+  if (!b || b.resetAt <= now) {
     buckets.set(id, { count: 1, resetAt: now + RL_WINDOW_MS });
     return { ok: true, remaining: RL_MAX - 1, resetAt: now + RL_WINDOW_MS };
   }
-  if (bucket.count >= RL_MAX) {
-    return { ok: false, remaining: 0, resetAt: bucket.resetAt };
-  }
-  bucket.count++;
-  return { ok: true, remaining: RL_MAX - bucket.count, resetAt: bucket.resetAt };
+  if (b.count >= RL_MAX) return { ok: false, remaining: 0, resetAt: b.resetAt };
+  b.count++;
+  return { ok: true, remaining: RL_MAX - b.count, resetAt: b.resetAt };
 }
 
-// ========= Auditoria =========
-async function auditLog(line: string) {
-  try {
-    const logsDir = path.join(process.cwd(), ".logs");
-    await fs.mkdir(logsDir, { recursive: true });
-    const file = path.join(logsDir, "write-post.log");
-    await fs.appendFile(file, line + "\n", "utf-8");
-  } catch {
-    // ignore erro de log
-  }
+/* ================= Frontmatter builder ================= */
+function buildFrontmatter(fm: {
+  title: string; description?: string; slug: string; date: string; updated: string;
+  draft: boolean; author: string; tags: string[]; keywords: string[]; canonical: string;
+  ogImage?: string; coverImage?: string; toc: boolean; readingTime?: string;
+}) {
+  const order: [string, unknown][] = [
+    ["title", fm.title],
+    ["description", fm.description ?? ""],
+    ["slug", fm.slug],
+    ["date", fm.date],
+    ["updated", fm.updated],
+    ["draft", fm.draft],
+    ["author", fm.author],
+    ["tags", fm.tags],
+    ["keywords", fm.keywords],
+    ["canonical", fm.canonical ?? ""],
+    ["ogImage", fm.ogImage ?? fm.coverImage ?? ""],
+    ["coverImage", fm.coverImage ?? fm.ogImage ?? ""],
+    ["toc", fm.toc],
+    ["readingTime", fm.readingTime ?? ""],
+  ];
+
+  const body = order.map(([k, v]) => `${k}: ${yamlVal(v)}`).join("\n");
+  return `---\n${body}\n---\n`;
 }
 
-// ========= Handler =========
+/* ================= Handler ================= */
 export async function POST(request: Request) {
   const startedAt = Date.now();
   const ip = getIP(request);
   const ua = request.headers.get("user-agent") || "unknown";
   const apiKey = request.headers.get("x-api-key") || "";
 
-  // 1) Autorização por API Key
+  // 1) API Key
   const expectedKey = process.env.WRITE_POST_API_KEY;
   if (!expectedKey || apiKey !== expectedKey) {
     await auditLog(`${nowISO()} ip=${ip} ua="${ua}" status=401 reason=bad_api_key`);
     return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
   }
 
-  // 2) Rate limit por chave (prioridade) e IP como fallback
-  const rlId = `key:${apiKey}` || `ip:${ip}`;
-  const rl = rateLimitCheck(rlId);
+  // 2) Rate limit
+  const rl = rateLimitCheck(`key:${apiKey}`);
   if (!rl.ok) {
     await auditLog(`${nowISO()} ip=${ip} ua="${ua}" status=429 reason=rate_limited resetAt=${new Date(rl.resetAt).toISOString()}`);
     return NextResponse.json(
@@ -105,77 +145,104 @@ export async function POST(request: Request) {
     );
   }
 
-  // 3) Validação do corpo
-  let parsed: z.infer<typeof BodySchema>;
+  // 3) Suporte a JSON e text/markdown
+  const ct = request.headers.get("content-type")?.split(";")[0]?.trim() || "";
+
+  let fileDir = "src/content/posts";
+  let fileName = "";
+  let mdxToWrite = "";
+
   try {
-    const json = await request.json();
-    parsed = BodySchema.parse(json);
-  } catch (err) {
+    if (ct === "application/json") {
+      const data = BodySchema.parse(await request.json());
+
+      const slug = slugify(data.slug || data.title);
+      const date = data.date || todayYMD();
+      const updated = data.updated || date;
+
+      fileDir = data.dir || "src/content/posts";
+      fileName = `${slug}.mdx`;
+
+      const frontmatter = buildFrontmatter({
+        title: data.title,
+        description: data.description ?? "",
+        slug,
+        date,
+        updated,
+        draft: data.draft ?? false,
+        author: data.author,
+        tags: data.tags ?? [],
+        keywords: data.keywords ?? [],
+        canonical: data.canonical ?? "",
+        ogImage: data.ogImage ?? data.coverImage ?? "",
+        coverImage: data.coverImage ?? data.ogImage ?? "",
+        toc: data.toc ?? true,
+        readingTime: data.readingTime ?? ""
+      });
+
+      mdxToWrite = `${frontmatter}\n${data.content}\n`;
+    } else {
+      // text/markdown → MDX completo com frontmatter
+      const mdxRaw = await request.text();
+
+      // tenta descobrir slug pelo frontmatter
+      const mSlug = mdxRaw.match(/(?:^|\n)slug:\s*"?([^"\n]+)"?/i);
+      const mTitle = mdxRaw.match(/(?:^|\n)title:\s*"?([^"\n]+)"?/i);
+      const slug = mSlug?.[1] || slugify(mTitle?.[1] || `post-${Date.now()}`);
+
+      fileDir = "src/content/posts";
+      fileName = `${slug}.mdx`;
+      mdxToWrite = mdxRaw.endsWith("\n") ? mdxRaw : mdxRaw + "\n";
+    }
+  } catch (err: any) {
     await auditLog(`${nowISO()} ip=${ip} ua="${ua}" status=400 reason=invalid_body`);
     return NextResponse.json(
-      { message: "Invalid request body", error: err instanceof Error ? err.message : String(err) },
+      { message: "Invalid request body", error: String(err?.message || err) },
       { status: 400 }
     );
   }
 
-  const { title, author, content, coverImage } = parsed;
-
-  const slug = slugify(title);
-  if (!slug) {
-    await auditLog(`${nowISO()} ip=${ip} ua="${ua}" status=400 reason=bad_slug`);
-    return NextResponse.json({ message: "Invalid title/slug" }, { status: 400 });
-  }
-
   try {
-    // diretório alvo: src/content/posts
-    const postsDir = path.join(process.cwd(), "src", "content", "posts");
+    const postsDir = path.join(process.cwd(), fileDir); // <— usa content/posts
     await fs.mkdir(postsDir, { recursive: true });
 
-    const fileName = `${slug}.mdx`;
     const filePath = path.join(postsDir, fileName);
 
-    // duplicado?
+    // verifica duplicado; permite overwrite opcional apenas no JSON
+    let allowOverwrite = false;
+    if (ct === "application/json") {
+      try {
+        const raw = await request.json(); // já foi lido acima; não dá pra reler
+      } catch {/* ignore */}
+      // não dá para reler o body; decidimos ler allowOverwrite do mdxToWrite? Não.
+      // então inferimos pelo nome: quando o cliente quiser sobrescrever, envie header:
+    }
+    // solução: permitir overwrite por header simples
+    const overwriteHeader = request.headers.get("x-overwrite");
+    allowOverwrite = overwriteHeader === "1" || overwriteHeader === "true";
+
     try {
       await fs.access(filePath);
-      await auditLog(`${nowISO()} ip=${ip} ua="${ua}" status=409 slug=${slug} reason=duplicate`);
-      return NextResponse.json(
-        { message: "A post with this title already exists.", slug },
-        { status: 409 }
-      );
-    } catch { /* ok, não existe */ }
+      if (!allowOverwrite) {
+        await auditLog(`${nowISO()} ip=${ip} ua="${ua}" status=409 file="${fileDir}/${fileName}" reason=duplicate`);
+        return NextResponse.json(
+          { message: "A post with this slug already exists.", file: `${fileDir}/${fileName}` },
+          { status: 409 }
+        );
+      }
+    } catch { /* não existe, segue */ }
 
-    const date = new Date().toISOString().split("T")[0];
-    const frontmatter =
-`---
-title: ${yamlEscape(title)}
-description: ""
-slug: ${yamlEscape(slug)}
-date: ${yamlEscape(date)}
-updated: ${yamlEscape(date)}
-draft: false
-author: ${yamlEscape(author)}
-tags: []
-keywords: []
-canonical: ""
-ogImage: ${yamlEscape(coverImage)}
-coverImage: ${yamlEscape(coverImage)}
-toc: true
-readingTime: ""
----`;
-
-    const mdxContent = `${frontmatter}\n\n${content}\n`;
-    await fs.writeFile(filePath, mdxContent, "utf-8");
+    await fs.writeFile(filePath, mdxToWrite, "utf-8");
 
     const took = Date.now() - startedAt;
-    const out = { message: "Post created successfully!", slug, file: `src/content/posts/${fileName}`, tookMs: took };
+    const out = { message: "Post created successfully!", file: `${fileDir}/${fileName}`, tookMs: took };
 
-    // Auditoria (sucesso)
-    await auditLog(`${nowISO()} ip=${ip} ua="${ua}" status=201 slug=${slug} file="${out.file}" tookMs=${took} remaining=${rl.remaining}`);
+    await auditLog(`${nowISO()} ip=${ip} ua="${ua}" status=201 file="${out.file}" tookMs=${took} remaining=${rl.remaining}`);
 
     return NextResponse.json(out, { status: 201 });
-  } catch (err) {
+  } catch (err: any) {
     const took = Date.now() - startedAt;
-    await auditLog(`${nowISO()} ip=${ip} ua="${ua}" status=500 slug=${slug} error="${(err as Error)?.message ?? err}" tookMs=${took}`);
+    await auditLog(`${nowISO()} ip=${ip} ua="${ua}" status=500 error="${String(err?.message || err)}" tookMs=${took}`);
     console.error("Failed to write post:", err);
     return NextResponse.json({ message: "Internal Server Error" }, { status: 500 });
   }
