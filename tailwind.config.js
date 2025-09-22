@@ -9,17 +9,17 @@ module.exports = {
     './src/posts/**/*.{md,mdx}',
   ],
   theme: {
+    fontFamily: {
+      sans: ['var(--font-poppins)'],
+    },
+    colors: {
+      background: '#F9FAFB',
+      primary: '#4CAF50',
+      accent: '#2196F3',
+      textDark: '#374151',
+      textSecondary: '#6B7280',
+    },
     extend: {
-      fontFamily: {
-        sans: ['var(--font-poppins)'],
-      },
-      colors: {
-        background: '#F9FAFB',
-        primary: '#4CAF50',
-        accent: '#2196F3',
-        textDark: '#374151',
-        textSecondary: '#6B7280',
-      },
       typography: ({ theme }) => ({
         DEFAULT: {
           css: {

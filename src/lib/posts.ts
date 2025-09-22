@@ -1,5 +1,5 @@
 // src/lib/posts.ts
-import fs from "node:fs";
+import fs from "node:fs/promises";
 import path from "node:path";
 import matter from "gray-matter";
 
@@ -31,90 +31,58 @@ export type PostFrontmatter = {
 };
 
 export type Post = PostFrontmatter & { content: string };
-
-// Para cards/listagens (sem `content`)
 export type PostMetadata = Omit<Post, "content">;
 
-// Diretórios candidatos para armazenar posts .mdx
-const CANDIDATES = [
-  ["src", "content", "posts"],
-  ["content", "posts"],
-  ["src", "posts"],
-  ["posts"],
-];
+const POSTS_DIR = path.join(process.cwd(), "src", "content", "posts");
 
-function pickPostsDir(): string {
-  const cwd = process.cwd();
-  for (const parts of CANDIDATES) {
-    const p = path.join(cwd, ...parts);
-    if (fs.existsSync(p)) return p;
+async function getPostFileNames(): Promise<string[]> {
+  try {
+    const files = await fs.readdir(POSTS_DIR);
+    return files.filter((f) => f.endsWith(".mdx"));
+  } catch (error) {
+    // Retorna vazio se o diretório não existir
+    return [];
   }
-  // fallback: cria src/content/posts para não quebrar builds sem posts
-  const fallback = path.join(cwd, "src", "content", "posts");
-  fs.mkdirSync(fallback, { recursive: true });
-  return fallback;
-}
-
-const POSTS_DIR = pickPostsDir();
-
-function mdxPathFromSlug(slug: string) {
-  return path.join(POSTS_DIR, `${slug}.mdx`);
 }
 
 function toTimestamp(v: unknown): number {
   if (!v) return 0;
-  if (v instanceof Date) return v.getTime();
-  if (typeof v === "string") {
-    const t = Date.parse(v);
-    return Number.isNaN(t) ? 0 : t;
-  }
-  return 0;
+  const date = new Date(v as string | Date);
+  return isNaN(date.getTime()) ? 0 : date.getTime();
 }
 
-// Lista somente os slugs (sem ler conteúdo)
 export async function getAllSlugs(): Promise<string[]> {
-  const files = fs
-    .readdirSync(POSTS_DIR, { withFileTypes: true })
-    .filter((f) => f.isFile() && f.name.endsWith(".mdx"))
-    .map((f) => f.name.replace(/\.mdx$/, ""));
-  return files;
+  const files = await getPostFileNames();
+  return files.map((f) => f.replace(/\.mdx$/, ""));
 }
 
-// Lista metadados (para cards/listagens). Ordena por updated/date desc.
 export async function getPostsMetadata(): Promise<PostMetadata[]> {
-  const files = fs
-    .readdirSync(POSTS_DIR, { withFileTypes: true })
-    .filter((f) => f.isFile() && f.name.endsWith(".mdx"))
-    .map((f) => f.name);
+  const files = await getPostFileNames();
 
-  const list: PostMetadata[] = [];
-  for (const file of files) {
-    const full = fs.readFileSync(path.join(POSTS_DIR, file), "utf8");
-    const { data } = matter(full);
-    const slug = file.replace(/\.mdx$/, "");
-    const fm = data as PostFrontmatter;
+  const posts = await Promise.all(
+    files.map(async (file) => {
+      const fullPath = path.join(POSTS_DIR, file);
+      const fileContents = await fs.readFile(fullPath, "utf8");
+      const { data } = matter(fileContents);
+      const slug = file.replace(/\.mdx$/, "");
+      const fm = data as PostFrontmatter;
 
-    // normaliza slug (sem barras iniciais)
-    const effectiveSlug = (fm.slug?.trim() || slug).replace(/^\/+/, "");
+      return { ...fm, slug: (fm.slug?.trim() || slug).replace(/^\/+/, "") };
+    })
+  );
 
-    // Coerção leve: garantimos o slug no objeto retornado
-    list.push({ ...fm, slug: effectiveSlug });
-  }
-
-  return list.sort((a, b) => {
-    return toTimestamp(b.updated ?? b.date) - toTimestamp(a.updated ?? a.date);
-  });
+  return posts.sort((a, b) => toTimestamp(b.updated ?? b.date) - toTimestamp(a.updated ?? a.date));
 }
 
-// Lê um post específico (frontmatter + conteúdo)
 export async function getPostBySlug(slug: string): Promise<Post | null> {
-  const p = mdxPathFromSlug(slug);
-  if (!fs.existsSync(p)) return null;
-
-  const raw = fs.readFileSync(p, "utf8");
-  const { data, content } = matter(raw);
-  const fm = data as PostFrontmatter;
-  const effectiveSlug = (fm.slug?.trim() || slug).replace(/^\/+/, "");
-
-  return { ...fm, slug: effectiveSlug, content };
+  const p = path.join(POSTS_DIR, `${slug}.mdx`);
+  try {
+    const raw = await fs.readFile(p, "utf8");
+    const { data, content } = matter(raw);
+    const fm = data as PostFrontmatter;
+    const effectiveSlug = (fm.slug?.trim() || slug).replace(/^\/+/, "");
+    return { ...fm, slug: effectiveSlug, content };
+  } catch (error) {
+    return null;
+  }
 }

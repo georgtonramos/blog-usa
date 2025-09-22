@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import fs from "fs/promises";
 import path from "path";
 import { z } from "zod";
+import { timingSafeEqual } from "crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,44 +19,51 @@ function slugify(input: string): string {
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "");
 }
-function yamlStr(s: unknown) {
+
+function yamlStr(s: unknown): string {
   return `"${String(s).replace(/"/g, '\\"')}"`;
 }
+
 function yamlVal(v: unknown): string {
   if (typeof v === "boolean") return v ? "true" : "false";
   if (Array.isArray(v)) return `[${v.map(yamlStr).join(", ")}]`;
   if (v === undefined || v === null) return `""`;
   return yamlStr(v);
 }
+
 function getIP(req: Request): string {
   const h = req.headers;
   return (
     h.get("x-forwarded-for")?.split(",")[0]?.trim() ||
     h.get("x-real-ip") ||
-    // @ts-ignore
     (h.get("cf-connecting-ip") as string) ||
     "unknown"
   );
 }
-function nowISO() { return new Date().toISOString(); }
-function todayYMD() { return new Date().toISOString().split("T")[0]; }
+
+function nowISO(): string {
+  return new Date().toISOString();
+}
+
+function todayYMD(): string {
+  return new Date().toISOString().split("T")[0];
+}
 
 async function auditLog(line: string) {
   try {
     const logsDir = path.join(process.cwd(), ".logs");
     await fs.mkdir(logsDir, { recursive: true });
     await fs.appendFile(path.join(logsDir, "write-post.log"), line + "\n", "utf-8");
-  } catch {/* ignore */}
+  } catch {
+    // ignore
+  }
 }
 
 /* ================= Zod (payload JSON) ================= */
 const BodySchema = z.object({
-  // obrigatórios
   title: z.string().min(3).max(120),
   author: z.string().min(2).max(60),
   content: z.string().min(20).max(100_000),
-
-  // opcionais (frontmatter)
   description: z.string().max(300).optional().default(""),
   slug: z.string().max(160).optional(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -68,10 +76,8 @@ const BodySchema = z.object({
   readingTime: z.string().optional().default(""),
   coverImage: z.string().max(300).optional().default(""),
   ogImage: z.string().max(300).optional(),
-
-  // extras
   dir: z.string().optional().default("src/content/posts"),
-  overwrite: z.boolean().optional().default(false)
+  overwrite: z.boolean().optional().default(false),
 });
 
 /* ================= Rate limit ================= */
@@ -79,7 +85,9 @@ type Bucket = { count: number; resetAt: number };
 const RL_WINDOW_MS = 60_000;
 const RL_MAX = 10;
 const globalAny = global as any;
-if (!globalAny.__WRITE_POST_RL__) globalAny.__WRITE_POST_RL__ = new Map<string, Bucket>();
+if (!globalAny.__WRITE_POST_RL__) {
+  globalAny.__WRITE_POST_RL__ = new Map<string, Bucket>();
+}
 const buckets: Map<string, Bucket> = globalAny.__WRITE_POST_RL__;
 
 function rateLimitCheck(id: string) {
@@ -89,16 +97,29 @@ function rateLimitCheck(id: string) {
     buckets.set(id, { count: 1, resetAt: now + RL_WINDOW_MS });
     return { ok: true, remaining: RL_MAX - 1, resetAt: now + RL_WINDOW_MS };
   }
-  if (b.count >= RL_MAX) return { ok: false, remaining: 0, resetAt: b.resetAt };
+  if (b.count >= RL_MAX) {
+    return { ok: false, remaining: 0, resetAt: b.resetAt };
+  }
   b.count++;
   return { ok: true, remaining: RL_MAX - b.count, resetAt: b.resetAt };
 }
 
 /* ================= Frontmatter builder ================= */
 function buildFrontmatter(fm: {
-  title: string; description?: string; slug: string; date: string; updated: string;
-  draft: boolean; author: string; tags: string[]; keywords: string[]; canonical: string;
-  ogImage?: string; coverImage?: string; toc: boolean; readingTime?: string;
+  title: string;
+  description?: string;
+  slug: string;
+  date: string;
+  updated: string;
+  draft: boolean;
+  author: string;
+  tags: string[];
+  keywords: string[];
+  canonical: string;
+  ogImage?: string;
+  coverImage?: string;
+  toc: boolean;
+  readingTime?: string;
 }) {
   const order: [string, unknown][] = [
     ["title", fm.title],
@@ -128,9 +149,9 @@ export async function POST(request: Request) {
   const ua = request.headers.get("user-agent") || "unknown";
   const apiKey = request.headers.get("x-api-key") || "";
 
-  // 1) API Key
+  // 1) API Key Validation
   const expectedKey = process.env.WRITE_POST_API_KEY;
-  if (!expectedKey || apiKey !== expectedKey) {
+  if (!expectedKey || !timingSafeEqual(Buffer.from(apiKey), Buffer.from(expectedKey))) {
     await auditLog(`${nowISO()} ip=${ip} ua="${ua}" status=401 reason=bad_api_key`);
     return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
   }
@@ -141,102 +162,53 @@ export async function POST(request: Request) {
     await auditLog(`${nowISO()} ip=${ip} ua="${ua}" status=429 reason=rate_limited resetAt=${new Date(rl.resetAt).toISOString()}`);
     return NextResponse.json(
       { message: "Too Many Requests", resetAt: new Date(rl.resetAt).toISOString() },
-      { status: 429, headers: { "Retry-After": Math.ceil((rl.resetAt - Date.now()) / 1000).toString() } }
+      { status: 429, headers: { "Retry-After": String(Math.ceil((rl.resetAt - Date.now()) / 1000)) } }
     );
   }
 
-  // 3) Suporte a JSON e text/markdown
-  const ct = request.headers.get("content-type")?.split(";")[0]?.trim() || "";
-
-  let fileDir = "src/content/posts";
-  let fileName = "";
-  let mdxToWrite = "";
+  let fileDir: string;
+  let fileName: string;
+  let mdxToWrite: string;
+  let allowOverwrite: boolean;
 
   try {
-    if (ct === "application/json") {
-      const data = BodySchema.parse(await request.json());
+    const data = BodySchema.parse(await request.json());
+    const slug = slugify(data.slug || data.title);
+    const date = data.date || todayYMD();
+    const updated = data.updated || date;
 
-      const slug = slugify(data.slug || data.title);
-      const date = data.date || todayYMD();
-      const updated = data.updated || date;
+    fileDir = data.dir;
+    fileName = `${slug}.mdx`;
+    allowOverwrite = data.overwrite;
 
-      fileDir = data.dir || "src/content/posts";
-      fileName = `${slug}.mdx`;
+    const frontmatter = buildFrontmatter({
+      ...data,
+      slug,
+      date,
+      updated,
+    });
 
-      const frontmatter = buildFrontmatter({
-        title: data.title,
-        description: data.description ?? "",
-        slug,
-        date,
-        updated,
-        draft: data.draft ?? false,
-        author: data.author,
-        tags: data.tags ?? [],
-        keywords: data.keywords ?? [],
-        canonical: data.canonical ?? "",
-        ogImage: data.ogImage ?? data.coverImage ?? "",
-        coverImage: data.coverImage ?? data.ogImage ?? "",
-        toc: data.toc ?? true,
-        readingTime: data.readingTime ?? ""
-      });
-
-      mdxToWrite = `${frontmatter}\n${data.content}\n`;
-    } else {
-      // text/markdown → MDX completo com frontmatter
-      const mdxRaw = await request.text();
-
-      // tenta descobrir slug pelo frontmatter
-      const mSlug = mdxRaw.match(/(?:^|\n)slug:\s*"?([^"\n]+)"?/i);
-      const mTitle = mdxRaw.match(/(?:^|\n)title:\s*"?([^"\n]+)"?/i);
-      const slug = mSlug?.[1] || slugify(mTitle?.[1] || `post-${Date.now()}`);
-
-      fileDir = "src/content/posts";
-      fileName = `${slug}.mdx`;
-      mdxToWrite = mdxRaw.endsWith("\n") ? mdxRaw : mdxRaw + "\n";
-    }
+    mdxToWrite = `${frontmatter}\n${data.content}\n`;
   } catch (err: any) {
     await auditLog(`${nowISO()} ip=${ip} ua="${ua}" status=400 reason=invalid_body`);
-    return NextResponse.json(
-      { message: "Invalid request body", error: String(err?.message || err) },
-      { status: 400 }
-    );
+    return NextResponse.json({ message: "Invalid request body", error: err.issues || String(err) }, { status: 400 });
   }
 
   try {
-    const postsDir = path.join(process.cwd(), fileDir); // <— usa content/posts
+    const postsDir = path.join(process.cwd(), fileDir);
     await fs.mkdir(postsDir, { recursive: true });
-
     const filePath = path.join(postsDir, fileName);
 
-    // verifica duplicado; permite overwrite opcional apenas no JSON
-    let allowOverwrite = false;
-    if (ct === "application/json") {
-      try {
-        const raw = await request.json(); // já foi lido acima; não dá pra reler
-      } catch {/* ignore */}
-      // não dá para reler o body; decidimos ler allowOverwrite do mdxToWrite? Não.
-      // então inferimos pelo nome: quando o cliente quiser sobrescrever, envie header:
+    const fileExists = await fs.access(filePath).then(() => true).catch(() => false);
+    if (fileExists && !allowOverwrite) {
+      await auditLog(`${nowISO()} ip=${ip} ua="${ua}" status=409 file="${fileDir}/${fileName}" reason=duplicate`);
+      return NextResponse.json({ message: "A post with this slug already exists.", file: `${fileDir}/${fileName}` }, { status: 409 });
     }
-    // solução: permitir overwrite por header simples
-    const overwriteHeader = request.headers.get("x-overwrite");
-    allowOverwrite = overwriteHeader === "1" || overwriteHeader === "true";
-
-    try {
-      await fs.access(filePath);
-      if (!allowOverwrite) {
-        await auditLog(`${nowISO()} ip=${ip} ua="${ua}" status=409 file="${fileDir}/${fileName}" reason=duplicate`);
-        return NextResponse.json(
-          { message: "A post with this slug already exists.", file: `${fileDir}/${fileName}` },
-          { status: 409 }
-        );
-      }
-    } catch { /* não existe, segue */ }
 
     await fs.writeFile(filePath, mdxToWrite, "utf-8");
 
     const took = Date.now() - startedAt;
     const out = { message: "Post created successfully!", file: `${fileDir}/${fileName}`, tookMs: took };
-
     await auditLog(`${nowISO()} ip=${ip} ua="${ua}" status=201 file="${out.file}" tookMs=${took} remaining=${rl.remaining}`);
 
     return NextResponse.json(out, { status: 201 });
