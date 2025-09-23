@@ -4,17 +4,24 @@ import { notFound } from "next/navigation";
 import Script from "next/script";
 import { getPostBySlug, getAllSlugs, type Post } from "@/lib/posts";
 import MDXRenderer from "@/components/MDXRenderer";
+import BreadcrumbSchema from "@/components/BreadcrumbSchema"; // Supondo que você criou este componente
 
 type Props = { params: { slug: string } };
 
-const SITE = process.env.NEXT_PUBLIC_SITE_URL || "https://blog.naturaleatinghub.online";
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://blog.naturaleatinghub.online";
 
+/**
+ * Converte uma URL relativa em absoluta. Essencial para metadados e schemas.
+ */
 function toAbsolute(url?: string): string | undefined {
   if (!url) return undefined;
   if (/^https?:\/\//i.test(url)) return url;
-  return `${SITE}${url.startsWith("/") ? "" : "/"}${url}`;
+  return `${SITE_URL}${url.startsWith("/") ? "" : "/"}${url}`;
 }
 
+/**
+ * Helper para criar scripts JSON-LD, evitando repetição.
+ */
 function createJsonLdScript(id: string, schema: object) {
   return (
     <Script
@@ -25,16 +32,18 @@ function createJsonLdScript(id: string, schema: object) {
   );
 }
 
+// Gera os parâmetros para as rotas estáticas no momento do build
 export async function generateStaticParams(): Promise<Array<{ slug: string }>> {
   const slugs = await getAllSlugs();
   return slugs.map((slug) => ({ slug }));
 }
 
+// Gera os metadados dinâmicos para cada página de post
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const post = await getPostBySlug(params.slug);
   if (!post) return {};
 
-  const canonical = post.canonical ?? `${SITE}/posts/${post.slug}`;
+  const canonical = post.canonical ?? `${SITE_URL}/posts/${post.slug}`;
   const ogImage = toAbsolute(post.ogImage) ?? toAbsolute(post.coverImage) ?? toAbsolute("/images/cover.jpg");
 
   return {
@@ -57,15 +66,22 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
+// Componente da página que renderiza o post
 export default async function PostPage({ params }: Props) {
   const post = await getPostBySlug(params.slug);
-  if (!post) return notFound();
+  if (!post) {
+    notFound();
+  }
 
   const datePublished = post.date ? new Date(String(post.date)).toISOString() : undefined;
   const dateModified = post.updated ? new Date(String(post.updated)).toISOString() : datePublished;
-  const url = post.canonical ?? `${SITE}/posts/${post.slug}`;
-  const images = [post.ogImage, post.coverImage].filter(Boolean).map((u) => toAbsolute(String(u)!)!).filter(Boolean) as string[];
+  const url = post.canonical ?? `${SITE_URL}/posts/${post.slug}`;
+  const images = [post.ogImage, post.coverImage]
+    .filter(Boolean)
+    .map((u) => toAbsolute(String(u)!))
+    .filter(Boolean) as string[];
 
+  // Schema JSON-LD para Artigo
   const articleSchema = {
     "@context": "https://schema.org",
     "@type": "Article",
@@ -77,14 +93,15 @@ export default async function PostPage({ params }: Props) {
     publisher: {
       "@type": "Organization",
       name: "Natural Eating Hub",
-      logo: { "@type": "ImageObject", url: toAbsolute("/logo.png")! },
+      logo: { "@type": "ImageObject", url: toAbsolute("/logo.png")! }, // Crie um logo.png em /public
     },
     datePublished,
     dateModified,
     keywords: Array.isArray(post.keywords) ? post.keywords.join(", ") : post.keywords,
   };
 
-  const faqSchema = post?.schema?.faq?.length
+  // Schema JSON-LD para FAQ (se existir no frontmatter)
+  const faqSchema = post.schema?.faq?.length
     ? {
         "@context": "https://schema.org",
         "@type": "FAQPage",
@@ -96,7 +113,8 @@ export default async function PostPage({ params }: Props) {
       }
     : null;
 
-  const howToSchema = post?.schema?.howto
+  // Schema JSON-LD para HowTo (se existir no frontmatter)
+  const howToSchema = post.schema?.howto
     ? {
         "@context": "https://schema.org",
         "@type": "HowTo",
@@ -107,14 +125,24 @@ export default async function PostPage({ params }: Props) {
         step: post.schema.howto.steps.map((t) => ({ "@type": "HowToStep", text: t })),
       }
     : null;
+    
+  // Schema JSON-LD para Breadcrumbs
+  const breadcrumbItems = [
+    { position: 1, name: "Home", item: "/" },
+    // { position: 2, name: "Posts", item: "/posts" }, // Descomente se tiver uma página de listagem
+    { position: 2, name: post.title, item: `/posts/${post.slug}` }
+  ];
 
   return (
     <>
+      <BreadcrumbSchema items={breadcrumbItems} />
+
       <article className="prose lg:prose-lg mx-auto max-w-3xl px-4 py-8">
         <h1>{post.title}</h1>
         <MDXRenderer source={post.content} />
       </article>
 
+      {/* Renderiza os schemas JSON-LD */}
       {createJsonLdScript("schema-article", articleSchema)}
       {faqSchema && createJsonLdScript("schema-faq", faqSchema)}
       {howToSchema && createJsonLdScript("schema-howto", howToSchema)}
