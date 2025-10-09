@@ -1,27 +1,26 @@
+// src/app/sitemap.ts
 import { getAllSlugs, getPostBySlug } from "@/lib/posts";
 
 export default async function sitemap() {
+  const siteUrl = "https://blog.naturaleatinghub.online";
   const slugs = await getAllSlugs();
 
   const posts = await Promise.all(
     slugs.map(async (slug) => {
       const post = await getPostBySlug(slug);
+      const lastModified = post?.updated || post?.date || new Date();
+      
       return {
-        url: `https://blog.naturaleatinghub.online/${slug}`,
-        lastModified: post?.updated || post?.date || new Date().toISOString(),
+        url: `${siteUrl}/posts/${slug}`,
+        lastModified: new Date(lastModified).toISOString(),
       };
     })
   );
 
-  return [
-    {
-      url: "https://blog.naturaleatinghub.online/",
-      lastModified: new Date(),
-    },
-    {
-      url: "https://blog.naturaleatinghub.online/posts",
-      lastModified: new Date(),
-    },
-    ...posts,
+  // Apenas a página inicial será incluída, além dos posts.
+  const routes = [
+    { url: siteUrl, lastModified: new Date().toISOString() },
   ];
+
+  return [...routes, ...posts];
 }
